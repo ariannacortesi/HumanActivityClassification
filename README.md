@@ -1,4 +1,4 @@
-# TP1 – Human Activity Classification, Part A
+# TP1 – Human Activity Classification
 
 `mainActivity.py` analyses wearable sensor recordings from the FORTH-TRACE dataset. It detects outliers, uses a linear model to replace injected outliers, and compares PCA, Fisher Score and ReliefF for feature reduction.
 
@@ -21,7 +21,7 @@ TP1/
     └── part14/
 ```
 
-## Run Part A
+## Run the script
 
 Open a terminal in the folder containing `mainActivity.py`. Install the dependencies once:
 
@@ -35,7 +35,13 @@ Run the script:
 python mainActivity.py
 ```
 
-The script processes all 75 recordings. It prints the results in the terminal and displays the plots at the end.
+The script runs Part A followed by exercise B.1. It processes all 75 recordings, prints the results in the terminal and displays the plots at the end. The `main()` function calls `part_a()` and `part_b()` in this order.
+
+## Part B - Exercise 1
+
+The Part B section of `mainActivity.py` implements Train-Test, Train-Validation-Test and K-fold splitting, followed by confusion matrix, recall, precision and F1-score calculations. Train-Test and Train-Validation-Test preserve class proportions. Metrics use macro averaging, giving each class equal importance.
+
+The example uses Iris to demonstrate the splits and a small set of known predictions to demonstrate the metrics.
 
 ## Implementation choices
 

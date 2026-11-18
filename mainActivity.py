@@ -1,6 +1,4 @@
-"""FORTH-TRACE laboratory assignment,
-Part A. Python, NumPy, and SciPy scripts and functions
-for data preparation and feature engineering"""
+"""FORTH-TRACE laboratory assignment - Part A and Part B (exercise 1)."""
 
 from pathlib import Path
 
@@ -9,6 +7,9 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 from sklearn.cluster import DBSCAN
+from sklearn.datasets import load_iris
+from sklearn.metrics import confusion_matrix, recall_score, precision_score, f1_score
+from sklearn.model_selection import KFold, train_test_split
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # The dataset folder is next to this script on every computer.
@@ -497,7 +498,7 @@ def rank_features(features, labels):
 
 
 # A.1: Run the exercises in the order used in the handout.
-def main():
+def part_a():
     traces, magnitudes, labels, subject_means = [], [], [], []
     for subject in range(15):
         data = load_subject(subject)
@@ -539,6 +540,105 @@ def main():
     print(data.loc[0, metadata].to_string())
     pca_study(X)
     rank_features(X, y)
+
+
+# Part B - Machine learning and evaluation
+# B.1.1.1: Split features and labels together, preserving class proportions.
+def train_test_data(X, y, test_size=0.3):
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=42, stratify=y
+    )
+    return X_train, X_test, y_train, y_test
+
+
+def train_validation_test_data(X, y, train_size=0.4, validation_size=0.3, test_size=0.3):
+    sizes = [train_size, validation_size, test_size]
+    if min(sizes) <= 0 or not np.isclose(sum(sizes), 1):
+        raise ValueError("The three proportions must be positive and add up to 1.")
+
+    # With 40-30-30, first keep 40% for training and 60% for the other two sets.
+    remaining_size = validation_size + test_size
+    X_train, X_remaining, y_train, y_remaining = train_test_data(X, y, remaining_size)
+    # Half of the remaining 60% gives 30% for validation and 30% for testing.
+    test_fraction = test_size / remaining_size
+    X_validation, X_test, y_validation, y_test = train_test_data(
+        X_remaining, y_remaining, test_fraction
+    )
+    return X_train, X_validation, X_test, y_train, y_validation, y_test
+
+
+# B.1.1.2: Each sample belongs to the test set exactly once in a K-fold split.
+def k_fold_data(X, n_splits=10):
+    folds = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+    return folds.split(X)
+
+
+# B.1.2.1: Rows are actual classes and columns are predicted classes.
+def calculate_confusion_matrix(y_true, y_predicted, labels=None):
+    matrix = confusion_matrix(y_true, y_predicted, labels=labels)
+    return matrix
+
+
+# B.1.2.2-1.2.4: Macro averaging gives every class the same importance.
+# Use zero when a class has no true or predicted samples for a metric.
+def calculate_recall(y_true, y_predicted, labels=None):
+    recall = recall_score(y_true, y_predicted, labels=labels, average="macro", zero_division=0)
+    return recall
+
+
+def calculate_precision(y_true, y_predicted, labels=None):
+    precision = precision_score(y_true, y_predicted, labels=labels, average="macro", zero_division=0)
+    return precision
+
+
+def calculate_f1(y_true, y_predicted, labels=None):
+    f1 = f1_score(y_true, y_predicted, labels=labels, average="macro", zero_division=0)
+    return f1
+
+
+def part_b():
+    # Demonstrate the splitting functions on Iris, used in the next exercise.
+    iris = load_iris()
+    X = iris.data      # Measurements of the flowers.
+    y = iris.target    # Species of each flower.
+    X_train, X_test, y_train, y_test = train_test_data(X, y)
+    print("B.1.1.1 - Train-Test (70-30)")
+    print("Training samples:", len(X_train))
+    print("Test samples:", len(X_test))
+
+    X_train, X_validation, X_test, y_train, y_validation, y_test = train_validation_test_data(X, y)
+    print("\nTrain-Validation-Test (40-30-30)")
+    print("Training samples:", len(X_train))
+    print("Validation samples:", len(X_validation))
+    print("Test samples:", len(X_test))
+
+    print("\nB.1.1.2 - 10-fold split")
+    number = 1
+    for train_indices, test_indices in k_fold_data(X):
+        # Index X and y with the same indices to obtain a fold's samples and labels.
+        X_train = X[train_indices]
+        X_test = X[test_indices]
+        y_train = y[train_indices]
+        y_test = y[test_indices]
+        print(f"Fold {number}: {len(X_train)} training samples, {len(X_test)} test samples")
+        number += 1
+
+    # A small example with known predictions illustrates the metrics.
+    y_true = [0, 0, 1, 1, 2, 2]
+    y_predicted = [0, 1, 1, 1, 2, 0]
+    print("\nB.1.2 - Example with three classes")
+    print("Actual labels:", y_true)
+    print("Predicted labels:", y_predicted)
+    print("Confusion matrix:\n", calculate_confusion_matrix(y_true, y_predicted))
+    print("Macro recall:", round(calculate_recall(y_true, y_predicted), 4))
+    print("Macro precision:", round(calculate_precision(y_true, y_predicted), 4))
+    print("Macro F1-score:", round(calculate_f1(y_true, y_predicted), 4))
+
+
+
+def main():
+    part_a()
+    part_b()
     plt.show()
 
 
