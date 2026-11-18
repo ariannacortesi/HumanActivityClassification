@@ -36,3 +36,14 @@ python mainActivity.py
 ```
 
 The script processes all 75 recordings. It prints the results in the terminal and displays the plots at the end.
+
+## Implementation choices
+
+The group implementations are combined in `mainActivity.py`. K-means and PCA use explicit NumPy steps. The original versions remain available in the Git history.
+
+- Z-score outliers are calculated separately for each activity to compare them with its boxplot. K-means uses all three standardized sensor magnitudes. The elbow is estimated on 20,000 reproducible samples, followed by fitting on all recordings. An upper Tukey fence on within-cluster distances identifies outliers. DBSCAN is demonstrated on the same sample.
+- Outlier injection reaches the requested total density relative to the original mean and standard deviation. The handout's `mean + sign * k * sd + q` formula can produce an inlier for a negative sign. The script repeats such proposals until they exceed the original limits. This literal interpretation can favour upper-tail outliers. Recomputing the limits after injection can give a different density.
+- Linear prediction uses subjects 0–9 for training, 10–11 to select the best tested order, and 12–14 to measure prediction error. Training takes one window every 20 readings. Only injected readings are replaced, in time order.
+- The activity comparison uses a permutation test on participant-level means, shuffling activity labels within each participant. This preserves the repeated-measures structure. It tests an overall difference between activities.
+- Feature extraction follows the temporal and spectral interpretation of exercise 4.2. It uses 102-sample windows (approximately two seconds at 51.2 Hz), 50% overlap, and restarts at each activity change. Each device contributes separate feature rows. The 101 features include per-axis statistics, pairwise correlations, spectral descriptors and averaged acceleration/rotation energies. Direction-dependent biomechanical descriptors are outside this interpretation. The source is Zhang and Sawchuk (2011), *A Feature Selection-Based Framework for Human Activity Recognition Using Wearable Multimodal Sensors*, DOI 10.4108/icst.bodynets.2011.247018.
+- ReliefF uses 256 reproducible query windows and searches for neighbours among all extracted windows. PCA and both feature rankings show the same example window.

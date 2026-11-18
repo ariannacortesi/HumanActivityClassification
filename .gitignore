@@ -1,0 +1,9 @@
+# Keep the downloaded dataset and assignment handout locally.
+/FORTH_TRACE_DATASET-master/
+/TP1_English_Translation.pdf
+
+# Python cache and local environments.
+__pycache__/
+*.pyc
+.venv/
+venv/

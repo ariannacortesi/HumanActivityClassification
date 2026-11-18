@@ -1,5 +1,5 @@
-"""FORTH-TRACE laboratory assignment, 
-Part A. Python, NumPy, and SciPy scripts and functions 
+"""FORTH-TRACE laboratory assignment,
+Part A. Python, NumPy, and SciPy scripts and functions
 for data preparation and feature engineering"""
 
 from pathlib import Path
@@ -8,8 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy import stats
-from sklearn.cluster import DBSCAN, KMeans
-from sklearn.decomposition import PCA
+from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # The dataset folder is next to this script on every computer.
@@ -47,6 +46,7 @@ def acceleration_outliers(acc, labels):
     ax.boxplot(groups, tick_labels=activities, flierprops={"markersize": 1})
     ax.set(xlabel="Activity", ylabel="Acceleration magnitude", title="A.3.1  All subjects and devices")
 
+    # Compute Z-scores within each activity for comparison with its own boxplot.
     thresholds = [3, 3.5, 4]
     masks = np.zeros((3, len(acc)), dtype=bool)
     rows = []
@@ -79,10 +79,34 @@ def acceleration_outliers(acc, labels):
 
 
 # A.3.6: Lloyd's K-means minimizes the squared distances to the cluster centres.
-def k_means(points, n_clusters):
-    model = KMeans(n_clusters=n_clusters, n_init=5, random_state=42)
-    model.fit(points)
-    return model
+def k_means(points, n_clusters, max_iter=100, seed=42):
+    if not 1 <= n_clusters <= len(points):
+        raise ValueError("The number of clusters must be between 1 and the number of samples.")
+    rng = np.random.default_rng(seed)
+    indices = rng.choice(len(points), n_clusters, replace=False)
+    centres = points[indices].copy()
+    labels = np.full(len(points), -1)
+
+    for _ in range(max_iter):
+        # Assign each point to its nearest centre.
+        distances = np.zeros((len(points), n_clusters))
+        for c in range(n_clusters):
+            distances[:, c] = np.sum((points - centres[c])**2, axis=1)
+        new_labels = np.argmin(distances, axis=1)
+        if np.array_equal(labels, new_labels):
+            break
+        labels = new_labels
+        # Move each centre to the mean of its assigned points.
+        for c in range(n_clusters):
+            group = points[labels == c]
+            if len(group) > 0:
+                centres[c] = group.mean(axis=0)
+
+    # Assign once more in case the iteration limit was reached after moving centres.
+    for c in range(n_clusters):
+        distances[:, c] = np.sum((points - centres[c])**2, axis=1)
+    labels = np.argmin(distances, axis=1)
+    return centres, labels
 
 
 def plot_clusters(ax, points, out, title):
@@ -100,8 +124,8 @@ def cluster_outliers(magnitudes, masks):
     ks = np.arange(1, 11)
     inertia = []
     for k in ks:
-        model = k_means(scaled[sample], k)
-        inertia.append(model.inertia_)
+        centres, groups = k_means(scaled[sample], k)
+        inertia.append(np.sum((scaled[sample] - centres[groups])**2))
     # Estimate the elbow by the largest gap below the chord joining the endpoints.
     chord = np.linspace(inertia[0], inertia[-1], len(ks))
     best = ks[np.argmax(chord - inertia)]
@@ -111,10 +135,12 @@ def cluster_outliers(magnitudes, masks):
     ax.set(xlabel="Number of clusters", ylabel="Within-cluster sum of squares", title="A.3.7  Elbow")
 
     # Fit the selected model on all samples. Use an upper Tukey fence per cluster.
-    model = k_means(scaled, best)
+    centres, groups = k_means(scaled, best)
     out = np.zeros(len(scaled), dtype=bool)
-    for c, centre in enumerate(model.cluster_centers_):
-        idx = np.flatnonzero(model.labels_ == c)
+    for c, centre in enumerate(centres):
+        idx = np.flatnonzero(groups == c)
+        if len(idx) == 0:
+            continue
         distance = np.linalg.norm(scaled[idx] - centre, axis=1)
         q1, q3 = np.percentile(distance, [25, 75])
         out[idx] = distance > q3 + 1.5 * (q3 - q1)
@@ -157,6 +183,8 @@ def inject_outliers(values, x, k, z, rng):
             if abs(candidate - mu) > span:
                 changed[i] = candidate
                 break
+    print(f"A.3.8  Original density={100*old.mean():.2f}%, "
+          f"target density={100*(old.sum()+needed)/len(clean):.2f}% (original limits)")
     return changed, injected
 
 
@@ -221,8 +249,11 @@ def prediction_study(traces):
         repaired, error = repair(trace, noisy, indices, best_beta)
         errors.extend(error)
         if number == 0:
-            points = indices[indices < 400]
-            axes[1].plot(trace[:400], label="Actual")
+            middle = indices[len(indices) // 2]
+            start = max(0, middle - 100)
+            stop = min(len(trace), middle + 100)
+            points = indices[(indices >= start) & (indices < stop)]
+            axes[1].plot(np.arange(start, stop), trace[start:stop], label="Actual")
             axes[1].scatter(points, repaired[points], color="red", label="Predicted")
     print(f"Best tested p={len(best_beta)-1}, test RMSE={np.sqrt(np.mean(np.square(errors))):.4f}")
     axes[0].hist(errors, bins=60, log=True)
@@ -250,36 +281,82 @@ def compare_activity_means(subject_means):
 
 # A.4.2: Zhang & Sawchuk (2011), Table 1 and section 3.3
 # Each row of a signal matrix is a two-second window of one sensor axis.
+def mean_feature(signal):
+    return np.mean(signal, axis=1)
+
+
+def median_feature(signal):
+    return np.median(signal, axis=1)
+
+
+def sd_feature(signal):
+    return np.std(signal, axis=1)
+
+
+def variance_feature(signal):
+    return np.var(signal, axis=1)
+
+
+def rms_feature(signal):
+    return np.sqrt(np.mean(signal**2, axis=1))
+
+
+def derivative_feature(signal, sampling_rate):
+    return np.diff(signal, axis=1).mean(axis=1) * sampling_rate
+
+
+def skewness_feature(signal):
+    return np.nan_to_num(stats.skew(signal, axis=1))
+
+
+def kurtosis_feature(signal):
+    return np.nan_to_num(stats.kurtosis(signal, axis=1))
+
+
+def iqr_feature(signal):
+    return stats.iqr(signal, axis=1)
+
+
 def crossing_rate(signal, level):
     above = signal > level
     return np.sum(above[:, 1:] != above[:, :-1], axis=1) / signal.shape[1]
 
 
-def spectral_features(signal, sampling_rate):
+def spectral_entropy(signal):
+    power = np.abs(np.fft.rfft(signal, axis=1))**2
+    return np.nan_to_num(stats.entropy(power, axis=1, base=2))
+
+
+def dominant_frequency(signal, sampling_rate):
     power = np.abs(np.fft.rfft(signal, axis=1))**2
     frequencies = np.fft.rfftfreq(signal.shape[1], 1 / sampling_rate)
-    dominant = frequencies[np.argmax(power, axis=1)]
-    entropy = np.nan_to_num(stats.entropy(power, axis=1, base=2))
-    # Removing the mean excludes DC. By Parseval, this equals FFT energy divided by N.
+    return frequencies[np.argmax(power, axis=1)]
+
+
+def spectral_energy(signal):
+    # Parseval's identity: this equals full FFT power without DC, divided by N.
     centred = signal - signal.mean(axis=1, keepdims=True)
-    energy = np.sum(centred**2, axis=1)
-    return entropy, dominant, energy
+    return np.sum(centred**2, axis=1)
+
+
+def correlation_feature(first, second):
+    # Each window is already standardized, so its mean product is the correlation.
+    return (first * second).mean(axis=1)
 
 
 def axis_features(signal, sampling_rate):
-    # Apply each time-domain or spectral statistic to the samples in each row.
-    mean = signal.mean(axis=1, keepdims=True)
-    entropy, dominant, energy = spectral_features(signal, sampling_rate)
+    # Apply the same feature routines to all the windows of this axis.
+    mean = mean_feature(signal)
     return {
-        "mean": mean.ravel(), "median": np.median(signal, axis=1),
-        "sd": signal.std(axis=1), "variance": signal.var(axis=1),
-        "rms": np.sqrt(np.mean(signal**2, axis=1)),
-        "derivative": np.diff(signal, axis=1).mean(axis=1) * sampling_rate,
-        "skew": np.nan_to_num(stats.skew(signal, axis=1)),
-        "kurtosis": np.nan_to_num(stats.kurtosis(signal, axis=1)),
-        "iqr": stats.iqr(signal, axis=1), "zero_cross": crossing_rate(signal, 0),
-        "mean_cross": crossing_rate(signal, mean), "entropy": entropy,
-        "dominant_hz": dominant, "energy": energy,
+        "mean": mean, "median": median_feature(signal),
+        "sd": sd_feature(signal), "variance": variance_feature(signal),
+        "rms": rms_feature(signal), "derivative": derivative_feature(signal, sampling_rate),
+        "skew": skewness_feature(signal), "kurtosis": kurtosis_feature(signal),
+        "iqr": iqr_feature(signal), "zero_cross": crossing_rate(signal, 0),
+        "mean_cross": crossing_rate(signal, mean[:, None]),
+        "entropy": spectral_entropy(signal),
+        "dominant_hz": dominant_frequency(signal, sampling_rate),
+        "energy": spectral_energy(signal),
     }
 
 
@@ -308,7 +385,7 @@ def extract_features(recording, subject):
     # Correlation is the mean product of two standardized axes in the same window.
     for i, first in enumerate(axes):
         for second in axes[i+1:]:
-            features[f"corr_{first}_{second}"] = (standardized[first] * standardized[second]).mean(axis=1)
+            features[f"corr_{first}_{second}"] = correlation_feature(standardized[first], standardized[second])
     frame = pd.DataFrame(features)
     frame["AAE"] = frame[["ax_energy", "ay_energy", "az_energy"]].mean(axis=1)
     frame["ARE"] = frame[["gx_energy", "gy_energy", "gz_energy"]].mean(axis=1)
@@ -323,19 +400,41 @@ def extract_features(recording, subject):
 
 
 # A.4.3-4.4.1: Project Z-normalized features onto orthogonal directions.
+def pca(values):
+    # Normalize each feature before forming its covariance matrix.
+    mean = values.mean(axis=0)
+    sd = values.std(axis=0)
+    sd[sd == 0] = 1
+    normalized = (values - mean) / sd
+    covariance = np.cov(normalized, rowvar=False)
+    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+    order = np.argsort(eigenvalues)[::-1]
+    return eigenvalues[order], eigenvectors[:, order], mean, sd
+
+
 def pca_study(features):
-    scaled = StandardScaler().fit_transform(features)
-    model = PCA(svd_solver="full")
-    model.fit(scaled)
-    variance = model.explained_variance_ratio_
+    values = features.to_numpy()
+    eigenvalues, eigenvectors, mean, sd = pca(values)
+    variance = eigenvalues / eigenvalues.sum()
     cumulative = np.cumsum(variance)
     count = np.searchsorted(cumulative, .75) + 1
     print("\nA.4.4  Variance explained by each eigenvector (%)")
     print(pd.DataFrame({"individual": 100*variance, "cumulative": 100*cumulative},
                        index=np.arange(1, len(variance)+1)).round(3).to_string())
     print(f"{count} components explain {100*cumulative[count-1]:.2f}%.")
-    # A score is the dot product of the centered, standardized row and an eigenvector.
-    print("First retained PCA scores:", model.transform(scaled[:1])[0, :count].round(3))
+
+    plt.figure()
+    plt.bar(np.arange(1, len(variance)+1), 100*variance, label="Individual")
+    plt.plot(np.arange(1, len(variance)+1), 100*cumulative, color="red", label="Cumulative")
+    plt.axhline(75, color="gray", linestyle="--")
+    plt.xlabel("Principal component")
+    plt.ylabel("Explained variance (%)")
+    plt.legend()
+
+    # A.4.4.1: Normalize the example with the same statistics, then project it.
+    example = (values[0] - mean) / sd
+    compressed = example @ eigenvectors[:, :count]
+    print("First retained PCA scores:", compressed.round(3))
 
 
 # A.4.5: Fisher rewards differences between class means relative to within-class spread.
@@ -424,7 +523,7 @@ def main():
     prediction_study(traces)
     compare_activity_means(subject_means)
 
-    # Process one subject at a time so raw axis windows do not fill memory.
+    # A.4.2: Process every recording separately, keeping device boundaries intact.
     frames = []
     for subject in range(15):
         data = load_subject(subject)
